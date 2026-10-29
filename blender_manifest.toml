@@ -1,0 +1,14 @@
+schema_version = "1.0.0"
+id = "animation_ux"
+version = "1.0.2"
+name = "Animation UX - 通道自动展开"
+tagline = "在仅显示所选时，选择动画对象或骨骼后自动展开对应通道"
+maintainer = "Antigravity"
+type = "add-on"
+tags = ["Animation", "User Interface"]
+
+blender_version_min = "3.6.0"
+
+license = [
+  "SPDX:GPL-2.0-or-later",
+]
