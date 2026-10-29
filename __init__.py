@@ -1,14 +1,15 @@
 bl_info = {
-    "name": "Animation UX - 通道自动展开",
+    "name": "Animation UX - Auto Expand Channels",
     "author": "Antigravity",
-    "version": (1, 0, 2),
+    "version": (1, 0, 3),
     "blender": (3, 6, 0),
-    "location": "曲线编辑器与摄影表标题栏（过滤漏斗旁） / 3D 视图侧边栏",
-    "description": "在仅显示所选时，选择动画对象或骨骼后自动展开对应通道，支持单选与多选情景配置",
+    "location": "Graph Editor & Dope Sheet Header (next to filter funnel) / 3D View Sidebar",
+    "description": "Auto expand channels when selecting animated objects/bones under show_only_selected with configurable single & multi selection rules.",
     "category": "Animation",
 }
 
 import bpy
+from bpy.app.translations import pgettext_iface
 from bpy.props import (
     BoolProperty,
     EnumProperty,
@@ -25,15 +26,90 @@ from bpy.types import (
 
 
 # ============================================================================
-# 工具函数：兼容 Blender 4.x / 5.x 动作结构
+# i18n / 多语言字典 (原生国际化支持：切英文显示纯英文，切中文显示纯中文)
+# ============================================================================
+
+TRANSLATIONS_TABLE = {
+    "Auto Expand Channels": "自动展开通道",
+    "Only on Show Only Selected": "仅在【仅显示所选】开启时生效",
+    "Only auto-expand when 'Only Show Selected' is active in Dope Sheet or Graph Editor": "只有当动画编辑器开启【仅显示所选】过滤时才触发自动展开",
+    "Automatically expand animation channels when clicking/selecting animated objects or bones": "当点击选择动画对象或骨骼时，自动展开对应的动画通道",
+    "Single Selection Scenario": "单选情景",
+    "Single Selection Mode": "单选行为",
+    "Action when a single object or bone is selected": "单个对象或骨骼被选中时的通道展开行为",
+    "Expand Selected & Collapse Others": "展开所选，折叠其他",
+    "Expand target and collapse all other channels": "展开当前选中项并自动折叠其他所有通道，保持面板最精简",
+    "Expand Selected & Keep Others": "仅展开所选，保持其他",
+    "Expand target while keeping existing open channels": "展开当前选中项，保留之前已展开的通道",
+    "Do Nothing": "不处理",
+    "Do not auto-expand when single item is selected": "单选时不自动改变通道展开状态",
+    "Auto Expand Parent Slot/Object": "自动展开父级槽位/对象",
+    "Ensure parent slot or armature object channel is also expanded": "确保父级 Slot 或骨架对象通道也处于展开状态，保证子通道直接可见",
+    "Multi Selection Scenario": "多选情景",
+    "Multi Selection Mode": "多选行为",
+    "Action when multiple objects or bones are selected": "多个对象或骨骼被选中时的通道展开行为",
+    "Expand All Selected": "展开全部所选",
+    "Expand channel groups for all selected bones/objects": "展开所有被选中的骨骼或对象通道组",
+    "Expand Active Only & Collapse Others": "仅展开活动项，折叠其他",
+    "Expand only the active item and collapse other selected items": "多选时只展开最后选中的活动项，其余保持折叠",
+    "Expand Active Only & Keep Others": "仅展开活动项，保持其他",
+    "Expand active item without changing other items": "多选时展开活动项，不改变其他项已展开状态",
+    "Collapse All Selected": "全部折叠",
+    "Collapse all selected items for an uncluttered overview": "多选时折叠所有通道以提供全局概览",
+    "Do not modify channel expansion on multi-selection": "多选时不自动修改通道展开状态",
+    "Use Count Threshold": "启用数量阈值自适应",
+    "Limit channel expansion when selecting many bones/objects at once": "当同时选中的骨骼或对象过多时，自动切换策略以防止通道列表爆炸",
+    "Threshold Count": "阈值数量",
+    "Maximum number of selected items before falling back to overflow mode": "选中数量超过此数值时，自动切换到降级策略",
+    "Overflow Mode": "超出阈值时的策略",
+    "Mode applied when selected items exceed threshold count": "选中数量超出阈值时执行的行为",
+    "Expand Active Only": "仅展开活动项",
+    "Switch to active item only when selection exceeds threshold": "超过阈值时仅展开当前活动项",
+    "Collapse All": "全部折叠",
+    "Collapse all selected channels when selection exceeds threshold": "超过阈值时全部折叠以防止屏幕被大量曲线挤爆",
+    "Keep current expansion states when selection exceeds threshold": "超过阈值时不修改",
+    "Graph Editor": "曲线编辑器",
+    "Apply expansion to Graph Editor channels": "是否对曲线编辑器的通道列表生效",
+    "Dope Sheet / Action Editor": "动画摄影表",
+    "Apply expansion to Dope Sheet / Timeline / Action Editor channels": "是否对动画摄影表/动作编辑器的通道列表生效",
+    "On Deselect All": "全不选时",
+    "Behavior when no objects or bones are selected": "当没有任何对象或骨骼被选中时的行为",
+    "Keep Current State": "保持现状",
+    "Do not alter channels when everything is deselected": "全部取消选择时保持通道现有展开状态",
+    "Collapse channels when everything is deselected": "全部取消选择时自动折叠所有通道",
+    "Auto Expand Channels Now": "立即执行通道展开",
+    "Manually trigger auto expansion logic according to current settings": "根据当前单选/多选配置立即刷新动画通道展开状态",
+    "Toggle Channel Auto-Expansion": "开关通道自动展开",
+    "Quickly enable or disable auto-expansion on click": "快速开启或关闭选择对象/骨骼时自动展开通道的功能",
+    "Auto Expand Channels Settings": "通道自动展开配置",
+    "Global Configuration": "全局配置",
+    "Target Editors": "生效编辑器",
+    "Target Editors & Misc": "生效编辑器与杂项",
+    "Other Behaviors": "其他行为",
+    "Threshold": "阈值",
+    "Trigger Now": "立即执行",
+    "Settings will be initialized after opening a scene.": "设置将在打开场景后初始化",
+    "Channels expanded according to rules": "已按规则刷新通道展开状态",
+    "Auto Expand Channels: Enabled": "通道自动展开: 已开启",
+    "Auto Expand Channels: Disabled": "通道自动展开: 已关闭",
+}
+
+TRANSLATIONS_DICT = {
+    "zh_HANS": {("*", k): v for k, v in TRANSLATIONS_TABLE.items()},
+    "zh_CN": {("*", k): v for k, v in TRANSLATIONS_TABLE.items()},
+}
+
+
+# ============================================================================
+# Helpers: Compatibility for Blender 4.x / 5.x Slotted & Layered Actions
 # ============================================================================
 
 def get_action_groups_and_slots(obj):
     """
-    获取对象的动画槽位和曲线组列表。
-    兼容：
-      - Blender 5.x 分层/槽位动作 (strip.channelbags -> groups)
-      - Blender 4.x / 3.x 传统动作结构 (action.groups)
+    Retrieve all relevant action slots and action groups for an object.
+    Supports:
+      - Blender 5.x layered and slotted actions (strip.channelbags -> groups)
+      - Blender 4.x / legacy single-action structures (action.groups)
     """
     slots = []
     groups = []
@@ -45,7 +121,7 @@ def get_action_groups_and_slots(obj):
     if slot:
         slots.append(slot)
 
-    # Blender 5.x 分层动作
+    # Blender 5.x layered actions
     if hasattr(act, "layers"):
         slot_handle = slot.handle if slot else None
         for layer in act.layers:
@@ -53,7 +129,7 @@ def get_action_groups_and_slots(obj):
                 for bag in strip.channelbags:
                     if slot_handle is None or bag.slot_handle == slot_handle:
                         groups.extend(bag.groups)
-    # Blender 4.x 传统动作
+    # Blender 4.x / legacy actions
     elif hasattr(act, "groups"):
         groups.extend(act.groups)
 
@@ -62,7 +138,7 @@ def get_action_groups_and_slots(obj):
 
 def is_show_only_selected_active(context):
     """
-    检查可见的曲线编辑器或摄影表是否开启了【仅显示所选】过滤。
+    Check if any visible Graph Editor or Dope Sheet has 'show_only_selected' enabled.
     """
     wm = getattr(context, "window_manager", None)
     if not wm:
@@ -78,7 +154,7 @@ def is_show_only_selected_active(context):
 
 
 def request_editor_redraws(context, target_graph=True, target_dopesheet=True):
-    """即时重绘动画编辑器以刷新通道折叠/展开外观。"""
+    """Redraw animation editors to show updated channel collapse/expand states immediately."""
     wm = getattr(context, "window_manager", None)
     if not wm:
         return
@@ -95,107 +171,107 @@ def request_editor_redraws(context, target_graph=True, target_dopesheet=True):
 
 
 # ============================================================================
-# 配置选项定义（纯中文无杂合）
+# Settings: Property Group & Addon Preferences
 # ============================================================================
 
 SINGLE_MODE_ITEMS = (
-    ("EXPAND_COLLAPSE_OTHERS", "展开所选，折叠其他", "展开当前选中项并自动折叠其他所有通道，保持面板最精简"),
-    ("EXPAND_KEEP_OTHERS", "仅展开所选，保持其他", "展开当前选中项，保留之前已展开的通道"),
-    ("DO_NOTHING", "不处理", "单选时不自动改变通道展开状态"),
+    ("EXPAND_COLLAPSE_OTHERS", "Expand Selected & Collapse Others", "Expand target and collapse all other channels"),
+    ("EXPAND_KEEP_OTHERS", "Expand Selected & Keep Others", "Expand target while keeping existing open channels"),
+    ("DO_NOTHING", "Do Nothing", "Do not auto-expand when single item is selected"),
 )
 
 MULTI_MODE_ITEMS = (
-    ("EXPAND_ALL", "展开全部所选", "展开所有被选中的骨骼或对象通道组"),
-    ("EXPAND_ACTIVE_ONLY", "仅展开活动项，折叠其他", "多选时只展开最后选中的活动项，其余保持折叠"),
-    ("EXPAND_ACTIVE_KEEP", "仅展开活动项，保持其他", "多选时展开活动项，不改变其他项已展开状态"),
-    ("COLLAPSE_ALL", "全部折叠", "多选时折叠所有通道以提供全局概览"),
-    ("DO_NOTHING", "保持现状", "多选时不自动修改通道展开状态"),
+    ("EXPAND_ALL", "Expand All Selected", "Expand channel groups for all selected bones/objects"),
+    ("EXPAND_ACTIVE_ONLY", "Expand Active Only & Collapse Others", "Expand only the active item and collapse other selected items"),
+    ("EXPAND_ACTIVE_KEEP", "Expand Active Only & Keep Others", "Expand active item without changing other items"),
+    ("COLLAPSE_ALL", "Collapse All Selected", "Collapse all selected items for an uncluttered overview"),
+    ("DO_NOTHING", "Do Nothing", "Do not modify channel expansion on multi-selection"),
 )
 
 OVERFLOW_MODE_ITEMS = (
-    ("EXPAND_ACTIVE_ONLY", "仅展开活动项", "超过阈值时仅展开当前活动项"),
-    ("COLLAPSE_ALL", "全部折叠", "超过阈值时全部折叠以防止屏幕被大量曲线挤爆"),
-    ("DO_NOTHING", "保持现状", "超过阈值时不修改"),
+    ("EXPAND_ACTIVE_ONLY", "Expand Active Only", "Switch to active item only when selection exceeds threshold"),
+    ("COLLAPSE_ALL", "Collapse All", "Collapse all selected channels when selection exceeds threshold"),
+    ("DO_NOTHING", "Do Nothing", "Keep current expansion states when selection exceeds threshold"),
 )
 
 ON_DESELECT_ITEMS = (
-    ("KEEP", "保持现状", "全部取消选择时保持通道现有展开状态"),
-    ("COLLAPSE_ALL", "全部折叠", "全部取消选择时自动折叠所有通道"),
+    ("KEEP", "Keep Current State", "Do not alter channels when everything is deselected"),
+    ("COLLAPSE_ALL", "Collapse All", "Collapse channels when everything is deselected"),
 )
 
 
 class AnimUXSettings(PropertyGroup):
     enabled: BoolProperty(
-        name="自动展开通道",
-        description="当点击选择动画对象或骨骼时，自动展开对应的动画通道",
+        name="Auto Expand Channels",
+        description="Automatically expand animation channels when clicking/selecting animated objects or bones",
         default=True,
     )
 
     require_show_only_selected: BoolProperty(
-        name="仅在【仅显示所选】开启时生效",
-        description="只有当动画编辑器开启【仅显示所选】过滤时才触发自动展开",
+        name="Only on Show Only Selected",
+        description="Only auto-expand when 'Only Show Selected' is active in Dope Sheet or Graph Editor",
         default=True,
     )
 
-    # 单选配置
+    # Single item scenario
     single_mode: EnumProperty(
-        name="单选行为",
-        description="单个对象或骨骼被选中时的通道展开行为",
+        name="Single Selection Mode",
+        description="Action when a single object or bone is selected",
         items=SINGLE_MODE_ITEMS,
         default="EXPAND_COLLAPSE_OTHERS",
     )
 
     single_expand_slot: BoolProperty(
-        name="自动展开父级槽位/对象",
-        description="确保父级 Slot 或骨架对象通道也处于展开状态，保证子通道直接可见",
+        name="Auto Expand Parent Slot/Object",
+        description="Ensure parent slot or armature object channel is also expanded",
         default=True,
     )
 
-    # 多选配置
+    # Multi item scenario
     multi_mode: EnumProperty(
-        name="多选行为",
-        description="多个对象或骨骼被选中时的通道展开行为",
+        name="Multi Selection Mode",
+        description="Action when multiple objects or bones are selected",
         items=MULTI_MODE_ITEMS,
         default="EXPAND_ALL",
     )
 
     use_multi_threshold: BoolProperty(
-        name="启用数量阈值自适应",
-        description="当同时选中的骨骼或对象过多时，自动切换策略以防止通道列表爆炸",
+        name="Use Count Threshold",
+        description="Limit channel expansion when selecting many bones/objects at once",
         default=True,
     )
 
     multi_threshold_count: IntProperty(
-        name="阈值数量",
-        description="选中数量超过此数值时，自动切换到降级策略",
+        name="Threshold Count",
+        description="Maximum number of selected items before falling back to overflow mode",
         default=4,
         min=2,
         max=50,
     )
 
     multi_overflow_mode: EnumProperty(
-        name="超出阈值时的策略",
-        description="选中数量超出阈值时执行的行为",
+        name="Overflow Mode",
+        description="Mode applied when selected items exceed threshold count",
         items=OVERFLOW_MODE_ITEMS,
         default="EXPAND_ACTIVE_ONLY",
     )
 
-    # 生效编辑器
+    # Target editors
     target_graph_editor: BoolProperty(
-        name="曲线编辑器",
-        description="是否对曲线编辑器的通道列表生效",
+        name="Graph Editor",
+        description="Apply expansion to Graph Editor channels",
         default=True,
     )
 
     target_dopesheet: BoolProperty(
-        name="动画摄影表",
-        description="是否对动画摄影表/动作编辑器的通道列表生效",
+        name="Dope Sheet / Action Editor",
+        description="Apply expansion to Dope Sheet / Timeline / Action Editor channels",
         default=True,
     )
 
     on_deselect: EnumProperty(
-        name="全不选时",
-        description="当没有任何对象或骨骼被选中时的行为",
+        name="On Deselect All",
+        description="Behavior when no objects or bones are selected",
         items=ON_DESELECT_ITEMS,
         default="KEEP",
     )
@@ -208,29 +284,29 @@ class AnimUXPreferences(AddonPreferences):
         layout = self.layout
         settings = getattr(context.scene, "anim_ux_settings", None)
         if not settings:
-            layout.label(text="设置将在打开场景后初始化")
+            layout.label(text=pgettext_iface("Settings will be initialized after opening a scene."))
             return
 
         box = layout.box()
-        box.label(text="全局配置", icon="SETTINGS")
+        box.label(text=pgettext_iface("Global Configuration"), icon="SETTINGS")
         row = box.row()
         row.prop(settings, "enabled")
         row.prop(settings, "require_show_only_selected")
 
         row = box.row()
-        row.label(text="生效编辑器:")
+        row.label(text=pgettext_iface("Target Editors") + ":")
         row.prop(settings, "target_graph_editor")
         row.prop(settings, "target_dopesheet")
 
-        # 单选情景面板
+        # Single selection box
         box_single = layout.box()
-        box_single.label(text="单个对象/骨骼选中情景", icon="USER")
+        box_single.label(text=pgettext_iface("Single Selection Scenario"), icon="USER")
         box_single.prop(settings, "single_mode")
         box_single.prop(settings, "single_expand_slot")
 
-        # 多选情景面板
+        # Multi selection box
         box_multi = layout.box()
-        box_multi.label(text="多个对象/骨骼选中情景", icon="COMMUNITY")
+        box_multi.label(text=pgettext_iface("Multi Selection Scenario"), icon="COMMUNITY")
         box_multi.prop(settings, "multi_mode")
         box_multi.prop(settings, "use_multi_threshold")
         if settings.use_multi_threshold:
@@ -239,17 +315,17 @@ class AnimUXPreferences(AddonPreferences):
             col.prop(settings, "multi_overflow_mode")
 
         box_misc = layout.box()
-        box_misc.label(text="其他行为", icon="PREFERENCES")
+        box_misc.label(text=pgettext_iface("Other Behaviors"), icon="PREFERENCES")
         box_misc.prop(settings, "on_deselect")
 
 
 # ============================================================================
-# 核心处理逻辑
+# Core Logic: Channel Expansion Processor
 # ============================================================================
 
 def process_channel_expansion(context):
     """
-    根据当前上下文与配置应用通道展开/折叠规则。
+    Applies single / multi selection expansion logic based on current context.
     """
     if not context or not context.scene:
         return
@@ -257,7 +333,7 @@ def process_channel_expansion(context):
     if not settings or not settings.enabled:
         return
 
-    # 检查【仅显示所选】过滤开关
+    # Check 'show_only_selected' gate if enabled
     if settings.require_show_only_selected and not is_show_only_selected_active(context):
         return
 
@@ -266,14 +342,14 @@ def process_channel_expansion(context):
     apply_ds = settings.target_dopesheet
 
     # -------------------------------------------------------------------------
-    # 情景 1：姿态模式（骨骼）
+    # Case 1: Pose Mode (Bones in Armatures)
     # -------------------------------------------------------------------------
     if mode == "POSE":
         sel_bones = [b.name for b in context.selected_pose_bones]
         active_bone_name = context.active_pose_bone.name if context.active_pose_bone else None
         active_obj = context.active_object
 
-        # 全部取消选择
+        # If deselected all
         if not sel_bones:
             if settings.on_deselect == "COLLAPSE_ALL" and active_obj:
                 slots, groups = get_action_groups_and_slots(active_obj)
@@ -290,14 +366,14 @@ def process_channel_expansion(context):
 
         slots, groups = get_action_groups_and_slots(active_obj)
 
-        # 展开父级槽位
+        # Ensure parent slot is expanded if configured
         if settings.single_expand_slot:
             for s in slots:
                 s.show_expanded = True
 
         count = len(sel_bones)
 
-        # 单个骨骼选中情景
+        # Single Bone Selection
         if count == 1:
             target_bone = sel_bones[0]
             mode_choice = settings.single_mode
@@ -318,7 +394,7 @@ def process_channel_expansion(context):
                         if apply_graph:
                             g.show_expanded_graph = True
 
-        # 多个骨骼选中情景
+        # Multiple Bones Selection
         else:
             multi_choice = settings.multi_mode
             if settings.use_multi_threshold and count > settings.multi_threshold_count:
@@ -361,7 +437,7 @@ def process_channel_expansion(context):
         request_editor_redraws(context, apply_graph, apply_ds)
 
     # -------------------------------------------------------------------------
-    # 情景 2：物体模式（普通物体）
+    # Case 2: Object Mode (Standard Objects)
     # -------------------------------------------------------------------------
     elif mode == "OBJECT":
         sel_objs = [o for o in context.selected_objects if o.animation_data and o.animation_data.action]
@@ -383,7 +459,7 @@ def process_channel_expansion(context):
                 request_editor_redraws(context, apply_graph, apply_ds)
             return
 
-        # 单个物体选中情景
+        # Single Object Selection
         if count == 1:
             target_obj = sel_objs[0]
             mode_choice = settings.single_mode
@@ -411,7 +487,7 @@ def process_channel_expansion(context):
                     if apply_graph:
                         g.show_expanded_graph = True
 
-        # 多个物体选中情景
+        # Multiple Objects Selection
         else:
             multi_choice = settings.multi_mode
             if settings.use_multi_threshold and count > settings.multi_threshold_count:
@@ -469,7 +545,7 @@ def process_channel_expansion(context):
 
 
 # ============================================================================
-# 选择监听器：Depsgraph 更新与定时器分发
+# Observer: Depsgraph Update & Timer Dispatcher
 # ============================================================================
 
 class SelectionTracker:
@@ -499,7 +575,7 @@ class SelectionTracker:
         try:
             process_channel_expansion(context)
         except Exception as e:
-            print(f"[Animation UX] 错误: {e}")
+            print(f"[Animation UX] Error: {e}")
         finally:
             cls.is_executing = False
 
@@ -538,44 +614,44 @@ class SelectionTracker:
 
 
 # ============================================================================
-# 操作符定义
+# Operators
 # ============================================================================
 
 class ANIMUX_OT_ExpandChannelsNow(Operator):
     bl_idname = "anim_ux.expand_channels_now"
-    bl_label = "立即执行通道展开"
-    bl_description = "根据当前单选/多选配置立即刷新动画通道展开状态"
+    bl_label = "Auto Expand Channels Now"
+    bl_description = "Manually trigger auto expansion logic according to current settings"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         process_channel_expansion(context)
-        self.report({"INFO"}, "已按规则刷新通道展开状态")
+        self.report({"INFO"}, pgettext_iface("Channels expanded according to rules"))
         return {"FINISHED"}
 
 
 class ANIMUX_OT_ToggleEnabled(Operator):
     bl_idname = "anim_ux.toggle_enabled"
-    bl_label = "开关通道自动展开"
-    bl_description = "快速开启或关闭选择对象/骨骼时自动展开通道的功能"
+    bl_label = "Toggle Channel Auto-Expansion"
+    bl_description = "Quickly enable or disable auto-expansion on click"
     bl_options = {"REGISTER", "UNDO"}
 
     def execute(self, context):
         settings = context.scene.anim_ux_settings
         settings.enabled = not settings.enabled
-        state_str = "已开启" if settings.enabled else "已关闭"
-        self.report({"INFO"}, f"通道自动展开: {state_str}")
+        msg = "Auto Expand Channels: Enabled" if settings.enabled else "Auto Expand Channels: Disabled"
+        self.report({"INFO"}, pgettext_iface(msg))
         if settings.enabled:
             process_channel_expansion(context)
         return {"FINISHED"}
 
 
 # ============================================================================
-# 界面定义（标题栏挂载、弹出框与侧边栏）
+# User Interface (Header Injection & Popover & Sidebar)
 # ============================================================================
 
 class ANIMUX_PT_Popover(Panel):
     bl_idname = "ANIMUX_PT_popover"
-    bl_label = "通道自动展开配置"
+    bl_label = "Auto Expand Channels Settings"
     bl_space_type = "PROPERTIES"
     bl_region_type = "WINDOW"
 
@@ -590,44 +666,45 @@ class ANIMUX_PT_Popover(Panel):
 
         layout.separator()
         col_single = layout.box()
-        col_single.label(text="单选情景", icon="USER")
+        col_single.label(text=pgettext_iface("Single Selection Scenario"), icon="USER")
         col_single.prop(settings, "single_mode", text="")
         col_single.prop(settings, "single_expand_slot")
 
         col_multi = layout.box()
-        col_multi.label(text="多选情景", icon="COMMUNITY")
+        col_multi.label(text=pgettext_iface("Multi Selection Scenario"), icon="COMMUNITY")
         col_multi.prop(settings, "multi_mode", text="")
         col_multi.prop(settings, "use_multi_threshold")
         if settings.use_multi_threshold:
             row = col_multi.row(align=True)
-            row.prop(settings, "multi_threshold_count", text="阈值")
+            row.prop(settings, "multi_threshold_count", text=pgettext_iface("Threshold"))
             row.prop(settings, "multi_overflow_mode", text="")
 
         layout.separator()
         row = layout.row(align=True)
-        row.prop(settings, "target_graph_editor", toggle=True, text="曲线编辑器")
-        row.prop(settings, "target_dopesheet", toggle=True, text="摄影表")
+        row.prop(settings, "target_graph_editor", toggle=True)
+        row.prop(settings, "target_dopesheet", toggle=True)
 
-        layout.operator("anim_ux.expand_channels_now", icon="FILE_REFRESH")
+        layout.operator("anim_ux.expand_channels_now", icon="FILE_REFRESH", text=pgettext_iface("Trigger Now"))
 
 
 def draw_header_button(layout, context):
     """
-    绘制标题栏开关与单一原生下拉箭头。
+    Renders the toggle icon + single clean dropdown popover arrow.
+    No extra icons on popover so exactly ONE dropdown triangle appears.
     """
     settings = getattr(context.scene, "anim_ux_settings", None)
     if not settings:
         return
 
     row = layout.row(align=True)
-    # 动作图标开关（开启时高亮）
+    # Action toggle icon (highlights blue when active)
     row.prop(settings, "enabled", text="", icon="CON_ACTION")
-    # 下拉按钮：无额外图标参数，仅显示单一原生下拉箭头 ▼
+    # Popover button: text="" and NO icon argument so Blender draws only its single native dropdown arrow
     row.popover(panel="ANIMUX_PT_popover", text="")
 
 
 # ----------------------------------------------------------------------------
-# 标题栏拦截器：紧邻原生过滤漏斗按钮
+# Header Interceptor: Places our button tightly adjacent to the filter funnel
 # ----------------------------------------------------------------------------
 
 class HeaderLayoutProxy:
@@ -638,7 +715,7 @@ class HeaderLayoutProxy:
     def popover(self, *args, **kwargs):
         res = self._layout.popover(*args, **kwargs)
         panel = kwargs.get("panel") or (args[0] if args else None)
-        # 紧邻原生过滤漏斗按钮
+        # Directly adjacent to native filter funnel button in Graph Editor and Dope Sheet
         if panel in {"GRAPH_PT_filters", "DOPESHEET_PT_filters"}:
             draw_header_button(self._layout, self._context)
         return res
@@ -681,14 +758,14 @@ def unhook_header_draw(header_cls):
 
 
 def draw_into_native_filters(self, context):
-    """在原生过滤漏斗弹窗内同样注入配置入口。"""
+    """Also inject a settings section inside the native filter funnel popover panel."""
     settings = getattr(context.scene, "anim_ux_settings", None)
     if not settings:
         return
     layout = self.layout
     layout.separator()
     box = layout.box()
-    box.label(text="通道自动展开", icon="CON_ACTION")
+    box.label(text=pgettext_iface("Auto Expand Channels"), icon="CON_ACTION")
     row = box.row()
     row.prop(settings, "enabled")
     row.popover(panel="ANIMUX_PT_popover", text="", icon="PREFERENCES")
@@ -696,7 +773,7 @@ def draw_into_native_filters(self, context):
 
 class ANIMUX_PT_SidebarPanel(Panel):
     bl_idname = "ANIMUX_PT_sidebar_panel"
-    bl_label = "通道自动展开"
+    bl_label = "Auto Expand Channels"
     bl_category = "Animation UX"
     bl_space_type = "VIEW_3D"
     bl_region_type = "UI"
@@ -712,12 +789,12 @@ class ANIMUX_PT_SidebarPanel(Panel):
         box.prop(settings, "require_show_only_selected")
 
         box_s = layout.box()
-        box_s.label(text="单选情景", icon="USER")
+        box_s.label(text=pgettext_iface("Single Selection Scenario"), icon="USER")
         box_s.prop(settings, "single_mode")
         box_s.prop(settings, "single_expand_slot")
 
         box_m = layout.box()
-        box_m.label(text="多选情景", icon="COMMUNITY")
+        box_m.label(text=pgettext_iface("Multi Selection Scenario"), icon="COMMUNITY")
         box_m.prop(settings, "multi_mode")
         box_m.prop(settings, "use_multi_threshold")
         if settings.use_multi_threshold:
@@ -726,7 +803,7 @@ class ANIMUX_PT_SidebarPanel(Panel):
             sub.prop(settings, "multi_overflow_mode")
 
         box_t = layout.box()
-        box_t.label(text="生效编辑器与杂项", icon="WINDOW")
+        box_t.label(text=pgettext_iface("Target Editors & Misc"), icon="WINDOW")
         row = box_t.row()
         row.prop(settings, "target_graph_editor")
         row.prop(settings, "target_dopesheet")
@@ -736,7 +813,7 @@ class ANIMUX_PT_SidebarPanel(Panel):
 
 
 # ============================================================================
-# 注册与反注册
+# Registration
 # ============================================================================
 
 classes = (
@@ -750,20 +827,26 @@ classes = (
 
 
 def register():
+    # Register i18n dictionary
+    try:
+        bpy.app.translations.register(__name__, TRANSLATIONS_DICT)
+    except Exception as e:
+        print(f"[Animation UX] i18n register note: {e}")
+
     for cls in classes:
         bpy.utils.register_class(cls)
 
     bpy.types.Scene.anim_ux_settings = PointerProperty(type=AnimUXSettings)
 
-    # 拦截标题栏以精准插入在原生漏斗按钮旁
+    # Hook headers to place button tightly adjacent to the filter funnel popover
     hook_header_draw(bpy.types.GRAPH_HT_header)
     hook_header_draw(bpy.types.DOPESHEET_HT_header)
 
-    # 注入原生过滤漏斗弹窗
+    # Also append to the filter funnel panels if the user expands the funnel popover
     bpy.types.GRAPH_PT_filters.append(draw_into_native_filters)
     bpy.types.DOPESHEET_PT_filters.append(draw_into_native_filters)
 
-    # 注册事件监听
+    # Register handlers
     if SelectionTracker.on_depsgraph_update not in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.append(SelectionTracker.on_depsgraph_update)
 
@@ -772,14 +855,14 @@ def register():
 
 
 def unregister():
-    # 注销定时器与事件
+    # Unregister timer & handlers
     if bpy.app.timers.is_registered(SelectionTracker.periodic_poll):
         bpy.app.timers.unregister(SelectionTracker.periodic_poll)
 
     if SelectionTracker.on_depsgraph_update in bpy.app.handlers.depsgraph_update_post:
         bpy.app.handlers.depsgraph_update_post.remove(SelectionTracker.on_depsgraph_update)
 
-    # 恢复标题栏与原生面板
+    # Unhook headers & native panels
     unhook_header_draw(bpy.types.GRAPH_HT_header)
     unhook_header_draw(bpy.types.DOPESHEET_HT_header)
 
@@ -790,6 +873,11 @@ def unregister():
 
     for cls in reversed(classes):
         bpy.utils.unregister_class(cls)
+
+    try:
+        bpy.app.translations.unregister(__name__)
+    except Exception:
+        pass
 
 
 if __name__ == "__main__":
