@@ -1,6 +1,6 @@
 schema_version = "1.0.0"
 id = "animation_ux"
-version = "1.0.3"
+version = "1.0.4"
 name = "Animation UX - Auto Expand Channels"
 tagline = "Auto expand channels when selecting animated objects/bones under show_only_selected"
 maintainer = "Antigravity"

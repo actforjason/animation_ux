@@ -1,7 +1,7 @@
 bl_info = {
     "name": "Animation UX - Auto Expand Channels",
     "author": "Antigravity",
-    "version": (1, 0, 3),
+    "version": (1, 0, 4),
     "blender": (3, 6, 0),
     "location": "Graph Editor & Dope Sheet Header (next to filter funnel) / 3D View Sidebar",
     "description": "Auto expand channels when selecting animated objects/bones under show_only_selected with configurable single & multi selection rules.",
@@ -646,14 +646,17 @@ class ANIMUX_OT_ToggleEnabled(Operator):
 
 
 # ============================================================================
-# User Interface (Header Injection & Popover & Sidebar)
+# User Interface (Header Injection & Dedicated Popover Panels & Sidebar)
 # ============================================================================
 
-class ANIMUX_PT_Popover(Panel):
-    bl_idname = "ANIMUX_PT_popover"
+class AnimUXPopoverBase:
+    """
+    Base class for the popover panel.
+    bl_region_type = 'HEADER' ensures it is ONLY recognized as a header popover,
+    preventing it from ever appearing in the Properties window.
+    """
+    bl_region_type = "HEADER"
     bl_label = "Auto Expand Channels Settings"
-    bl_space_type = "PROPERTIES"
-    bl_region_type = "WINDOW"
 
     def draw(self, context):
         layout = self.layout
@@ -687,7 +690,17 @@ class ANIMUX_PT_Popover(Panel):
         layout.operator("anim_ux.expand_channels_now", icon="FILE_REFRESH", text=pgettext_iface("Trigger Now"))
 
 
-def draw_header_button(layout, context):
+class GRAPH_PT_animux_popover(AnimUXPopoverBase, Panel):
+    bl_idname = "GRAPH_PT_animux_popover"
+    bl_space_type = "GRAPH_EDITOR"
+
+
+class DOPESHEET_PT_animux_popover(AnimUXPopoverBase, Panel):
+    bl_idname = "DOPESHEET_PT_animux_popover"
+    bl_space_type = "DOPESHEET_EDITOR"
+
+
+def draw_header_button(layout, context, panel_idname):
     """
     Renders the toggle icon + single clean dropdown popover arrow.
     No extra icons on popover so exactly ONE dropdown triangle appears.
@@ -700,7 +713,7 @@ def draw_header_button(layout, context):
     # Action toggle icon (highlights blue when active)
     row.prop(settings, "enabled", text="", icon="CON_ACTION")
     # Popover button: text="" and NO icon argument so Blender draws only its single native dropdown arrow
-    row.popover(panel="ANIMUX_PT_popover", text="")
+    row.popover(panel=panel_idname, text="")
 
 
 # ----------------------------------------------------------------------------
@@ -708,16 +721,17 @@ def draw_header_button(layout, context):
 # ----------------------------------------------------------------------------
 
 class HeaderLayoutProxy:
-    def __init__(self, real_layout, context):
+    def __init__(self, real_layout, context, panel_idname):
         self._layout = real_layout
         self._context = context
+        self._panel_idname = panel_idname
 
     def popover(self, *args, **kwargs):
         res = self._layout.popover(*args, **kwargs)
         panel = kwargs.get("panel") or (args[0] if args else None)
         # Directly adjacent to native filter funnel button in Graph Editor and Dope Sheet
         if panel in {"GRAPH_PT_filters", "DOPESHEET_PT_filters"}:
-            draw_header_button(self._layout, self._context)
+            draw_header_button(self._layout, self._context, self._panel_idname)
         return res
 
     def __getattr__(self, name):
@@ -725,9 +739,9 @@ class HeaderLayoutProxy:
 
 
 class HeaderProxy:
-    def __init__(self, real_header, context):
+    def __init__(self, real_header, context, panel_idname):
         self._real = real_header
-        self.layout = HeaderLayoutProxy(real_header.layout, context)
+        self.layout = HeaderLayoutProxy(real_header.layout, context, panel_idname)
 
     def __getattr__(self, name):
         return getattr(self._real, name)
@@ -735,7 +749,7 @@ class HeaderProxy:
 
 _original_header_draws = {}
 
-def hook_header_draw(header_cls):
+def hook_header_draw(header_cls, panel_idname):
     if not hasattr(header_cls, "draw") or not hasattr(header_cls.draw, "_draw_funcs"):
         header_cls._dyn_ui_initialize()
     draw_funcs = header_cls.draw._draw_funcs
@@ -745,7 +759,7 @@ def hook_header_draw(header_cls):
     _original_header_draws[header_cls] = orig_func
 
     def wrapped_draw(self, context):
-        proxy = HeaderProxy(self, context)
+        proxy = HeaderProxy(self, context, panel_idname)
         return orig_func(proxy, context)
 
     draw_funcs[0] = wrapped_draw
@@ -757,8 +771,8 @@ def unhook_header_draw(header_cls):
         header_cls.draw._draw_funcs[0] = orig_func
 
 
-def draw_into_native_filters(self, context):
-    """Also inject a settings section inside the native filter funnel popover panel."""
+def draw_into_graph_filters(self, context):
+    """Inject settings into Graph Editor native filter funnel panel."""
     settings = getattr(context.scene, "anim_ux_settings", None)
     if not settings:
         return
@@ -768,7 +782,21 @@ def draw_into_native_filters(self, context):
     box.label(text=pgettext_iface("Auto Expand Channels"), icon="CON_ACTION")
     row = box.row()
     row.prop(settings, "enabled")
-    row.popover(panel="ANIMUX_PT_popover", text="", icon="PREFERENCES")
+    row.popover(panel="GRAPH_PT_animux_popover", text="", icon="PREFERENCES")
+
+
+def draw_into_dopesheet_filters(self, context):
+    """Inject settings into Dope Sheet native filter funnel panel."""
+    settings = getattr(context.scene, "anim_ux_settings", None)
+    if not settings:
+        return
+    layout = self.layout
+    layout.separator()
+    box = layout.box()
+    box.label(text=pgettext_iface("Auto Expand Channels"), icon="CON_ACTION")
+    row = box.row()
+    row.prop(settings, "enabled")
+    row.popover(panel="DOPESHEET_PT_animux_popover", text="", icon="PREFERENCES")
 
 
 class ANIMUX_PT_SidebarPanel(Panel):
@@ -821,7 +849,8 @@ classes = (
     AnimUXPreferences,
     ANIMUX_OT_ExpandChannelsNow,
     ANIMUX_OT_ToggleEnabled,
-    ANIMUX_PT_Popover,
+    GRAPH_PT_animux_popover,
+    DOPESHEET_PT_animux_popover,
     ANIMUX_PT_SidebarPanel,
 )
 
@@ -839,12 +868,12 @@ def register():
     bpy.types.Scene.anim_ux_settings = PointerProperty(type=AnimUXSettings)
 
     # Hook headers to place button tightly adjacent to the filter funnel popover
-    hook_header_draw(bpy.types.GRAPH_HT_header)
-    hook_header_draw(bpy.types.DOPESHEET_HT_header)
+    hook_header_draw(bpy.types.GRAPH_HT_header, "GRAPH_PT_animux_popover")
+    hook_header_draw(bpy.types.DOPESHEET_HT_header, "DOPESHEET_PT_animux_popover")
 
     # Also append to the filter funnel panels if the user expands the funnel popover
-    bpy.types.GRAPH_PT_filters.append(draw_into_native_filters)
-    bpy.types.DOPESHEET_PT_filters.append(draw_into_native_filters)
+    bpy.types.GRAPH_PT_filters.append(draw_into_graph_filters)
+    bpy.types.DOPESHEET_PT_filters.append(draw_into_dopesheet_filters)
 
     # Register handlers
     if SelectionTracker.on_depsgraph_update not in bpy.app.handlers.depsgraph_update_post:
@@ -866,8 +895,8 @@ def unregister():
     unhook_header_draw(bpy.types.GRAPH_HT_header)
     unhook_header_draw(bpy.types.DOPESHEET_HT_header)
 
-    bpy.types.GRAPH_PT_filters.remove(draw_into_native_filters)
-    bpy.types.DOPESHEET_PT_filters.remove(draw_into_native_filters)
+    bpy.types.GRAPH_PT_filters.remove(draw_into_graph_filters)
+    bpy.types.DOPESHEET_PT_filters.remove(draw_into_dopesheet_filters)
 
     del bpy.types.Scene.anim_ux_settings
 
